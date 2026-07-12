@@ -1,0 +1,89 @@
+name: Linux artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version used in the portable archive name
+        required: true
+        default: 1.2.35-yuimi.2
+
+permissions:
+  contents: read
+
+jobs:
+  linux-x64:
+    name: Linux x64 portable binaries
+    runs-on: ubuntu-24.04
+    env:
+      VERSION_INPUT: ${{ inputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate version
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$VERSION_INPUT" =~ ^[0-9A-Za-z][0-9A-Za-z._-]*$ ]]
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        working-directory: apps/codex-plus-manager
+        run: npm install --package-lock=false
+
+      - name: TypeScript check
+        working-directory: apps/codex-plus-manager
+        run: npm run check
+
+      - name: Build frontend
+        working-directory: apps/codex-plus-manager
+        run: npm run vite:build
+
+      - name: Rust tests
+        run: cargo test --workspace -j 2
+
+      - name: Build release binaries
+        run: cargo build --release -j 2
+
+      - name: Build portable archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="CodexPlusPlus-${VERSION_INPUT}-linux-x64.tar.gz"
+          mkdir -p dist/linux/app
+          install -m 0755 target/release/codex-plus-plus dist/linux/app/
+          install -m 0755 target/release/codex-plus-plus-manager dist/linux/app/
+          cp LICENSE dist/linux/app/
+          printf '%s\n' \
+            'Codex++ Linux x64 portable experimental build.' \
+            'The repository currently does not provide Linux desktop entry installation.' \
+            'Extract the archive and run the binaries directly.' \
+            > dist/linux/app/LINUX-NOTES.txt
+          tar -C dist/linux/app -czf "dist/linux/${archive}" .
+          (cd dist/linux && sha256sum "$archive" > "${archive}.sha256")
+
+      - name: Upload Linux archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-plus-plus-linux-x64
+          path: |
+            dist/linux/*.tar.gz
+            dist/linux/*.sha256
+          if-no-files-found: error
