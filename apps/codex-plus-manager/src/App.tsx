@@ -173,6 +173,7 @@ type BackendSettings = {
   codexAppImageOverlayOpacity: number;
   codexAppImageOverlayFitMode: ImageOverlayFitMode;
   codexGoalsEnabled: boolean;
+  codexAppGoalResumeGuard: boolean;
   launchMode: LaunchMode;
   relayBaseUrl: string;
   relayApiKey: string;
@@ -718,6 +719,7 @@ const defaultSettings: BackendSettings = {
   codexAppImageOverlayOpacity: 35,
   codexAppImageOverlayFitMode: "fit",
   codexGoalsEnabled: false,
+  codexAppGoalResumeGuard: false,
   launchMode: "patch",
   relayBaseUrl: "",
   relayApiKey: "",
@@ -4120,7 +4122,7 @@ function RelayProfileDetail({
           </Button>
         </Toolbar>
       </div>
-        <RelayProfileEditor profile={draft} form={form} isNew={isNew} onProfileChange={setDraft} onSwitch={switchDraft} actions={actions} modelWindowRows={modelWindowRows} setModelWindowRows={setModelWindowRows} />
+        <RelayProfileEditor profile={draft} form={form} isNew={isNew} onFormChange={onFormChange} onProfileChange={setDraft} onSwitch={switchDraft} actions={actions} modelWindowRows={modelWindowRows} setModelWindowRows={setModelWindowRows} />
       {isAggregateRelayProfile(draft) ? null : (
       <RelayFileEditors
         contextProfile={profile}
@@ -4170,6 +4172,7 @@ function RelayProfileEditor({
   profile,
   form,
   isNew = false,
+  onFormChange,
   onProfileChange,
   onSwitch,
   actions,
@@ -4179,6 +4182,7 @@ function RelayProfileEditor({
   profile: RelayProfile;
   form: BackendSettings;
   isNew?: boolean;
+  onFormChange: (value: BackendSettings) => void;
   onProfileChange: (value: RelayProfile) => void;
   onSwitch: () => void;
   actions: Actions;
@@ -4299,6 +4303,17 @@ function RelayProfileEditor({
             />
             <span>{t("启用目标功能")}</span>
           </label>
+          <label className="inline-check">
+            <input
+              checked={form.codexAppGoalResumeGuard}
+              onChange={(event) => onFormChange({ ...form, codexAppGoalResumeGuard: event.currentTarget.checked })}
+              type="checkbox"
+            />
+            <span>{t("启用目标续跑保护")}</span>
+          </label>
+          <p className="field-hint">
+            {t("检测到目标上下文时，Codex++ 会在中转请求中追加续跑保护提示，减少压缩后重做旧任务。")}
+          </p>
         </Field>
         <div className="relay-advanced-toggle">
           <Button
@@ -6165,6 +6180,7 @@ function normalizeSettings(settings: BackendSettings): BackendSettings {
     ...settings,
     relayProfilesEnabled: settings.relayProfilesEnabled !== false,
     computerUseGuardEnabled: settings.computerUseGuardEnabled === true,
+    codexAppGoalResumeGuard: settings.codexAppGoalResumeGuard === true,
     codexAppImageOverlayOpacity: clampNumber(settings.codexAppImageOverlayOpacity || 35, 1, 100),
     codexAppImageOverlayFitMode: normalizeImageOverlayFitMode(settings.codexAppImageOverlayFitMode),
     codexAppStepwiseMaxItems: clampNumber(settings.codexAppStepwiseMaxItems ?? 6, 0, 6),
