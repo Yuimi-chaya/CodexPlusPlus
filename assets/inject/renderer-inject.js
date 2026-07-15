@@ -331,7 +331,7 @@
   const codexThreadServiceTierMaxEntries = 120;
   const codexThreadServiceTierDraftBindWindowMs = 60 * 1000;
   const codexServiceTierRequestOverrideVersion = "4";
-  const codexAppServerModelRequestPatchVersion = "1";
+  const codexAppServerModelRequestPatchVersion = "2";
   const codexPluginMarketplaceUnlockVersion = "13";
   const codexPluginAutoExpandVersion = "1";
   const codexPluginAutoExpandMaxClicks = 80;

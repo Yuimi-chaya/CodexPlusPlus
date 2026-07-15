@@ -222,7 +222,7 @@ goals = true
 }
 
 #[test]
-fn switch_preserves_codex_app_state_and_remote_plugin_marketplace() {
+fn switch_preserves_safe_app_state_and_builtin_plugin_recovery() {
     let temp = tempfile::tempdir().unwrap();
     let home = temp.path().join("codex");
     std::fs::create_dir(&home).unwrap();
@@ -230,6 +230,7 @@ fn switch_preserves_codex_app_state_and_remote_plugin_marketplace() {
         home.join(".codex-global-state.json"),
         serde_json::json!({
             "electron-saved-workspace-roots": ["C:/work/app"],
+            "prompt-history": ["do-not-copy"],
             "thread-workspace-root-hints": {
                 "thread-1": "C:/work/app"
             },
@@ -239,7 +240,8 @@ fn switch_preserves_codex_app_state_and_remote_plugin_marketplace() {
             "projectless-thread-ids": ["thread-1"],
             "electron-persisted-atom-state": {
                 "default-service-tier": "priority",
-                "plugin-marketplace-unlocked": true
+                "plugin-marketplace-unlocked": true,
+                "provider-token-cache": "do-not-copy"
             },
             "computer-use-bundled-plugin-auto-install-disabled": true
         })
@@ -314,6 +316,29 @@ base_url = "https://a.example/v1"
 
     switch_relay_profile_in_home(&store, &home, next, "a").unwrap();
 
+    let snapshot: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            home.join("backups_state")
+                .join("app-state-sync")
+                .join("latest-safe-state.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        snapshot["state"]["electron-saved-workspace-roots"],
+        serde_json::json!(["C:\\work\\app"])
+    );
+    assert_eq!(
+        snapshot["state"]["electron-persisted-atom-state"]["default-service-tier"],
+        "priority"
+    );
+    assert!(snapshot["state"].get("prompt-history").is_none());
+    assert!(
+        snapshot["state"]["electron-persisted-atom-state"]
+            .get("provider-token-cache")
+            .is_none()
+    );
     let state: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(home.join(".codex-global-state.json")).unwrap(),
     )
@@ -347,6 +372,11 @@ base_url = "https://a.example/v1"
     assert!(
         state["electron-persisted-atom-state"]
             .get("prompt-history")
+            .is_none()
+    );
+    assert!(
+        state["electron-persisted-atom-state"]
+            .get("provider-token-cache")
             .is_none()
     );
     assert!(
