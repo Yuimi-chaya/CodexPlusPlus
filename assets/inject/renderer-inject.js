@@ -332,7 +332,7 @@
   const codexThreadServiceTierDraftBindWindowMs = 60 * 1000;
   const codexServiceTierRequestOverrideVersion = "4";
   const codexAppServerModelRequestPatchVersion = "2";
-  const codexPluginMarketplaceUnlockVersion = "13";
+  const codexPluginMarketplaceUnlockVersion = "14";
   const codexPluginAutoExpandVersion = "1";
   const codexPluginAutoExpandMaxClicks = 80;
   const codexPluginAutoExpandClickDelayMs = 90;
@@ -3200,6 +3200,7 @@
     );
     let added = 0;
     source.plugins.forEach((plugin) => {
+      if (marketplaceName === "openai-bundled" && !guardedBuiltinPluginNames.has(guardedBuiltinPluginName(plugin))) return;
       const key = pluginMarketplacePluginKey(plugin);
       const cloned = normalizeLocalPluginMarketplacePlugin(plugin, marketplaceName);
       if (!key || !cloned) return;
@@ -3241,8 +3242,11 @@
       }
       const cloned = cloneCodexPluginMarketplace(marketplace);
       if (!cloned) return;
-      cloned.plugins = Array.isArray(cloned.plugins)
-        ? cloned.plugins.map((plugin) => normalizeLocalPluginMarketplacePlugin(plugin, name)).filter(Boolean)
+      const sourcePlugins = Array.isArray(cloned.plugins)
+        ? cloned.plugins.filter((plugin) => name !== "openai-bundled" || guardedBuiltinPluginNames.has(guardedBuiltinPluginName(plugin)))
+        : [];
+      cloned.plugins = sourcePlugins.length
+        ? sourcePlugins.map((plugin) => normalizeLocalPluginMarketplacePlugin(plugin, name)).filter(Boolean)
         : [];
       result.marketplaces.push(cloned);
       byName.set(name, cloned);
@@ -3253,6 +3257,10 @@
       sendCodexPlusDiagnostic("plugin_marketplace_local_merged", { addedMarketplaces, addedPlugins });
     }
     return { addedMarketplaces, addedPlugins };
+  }
+
+  if (window.__CODEX_PLUS_TEST_PLUGIN_MARKETPLACE__) {
+    window.__codexPlusPluginMarketplaceTest = { mergeLocalPluginMarketplaces };
   }
 
   function restorePluginMarketplaceName(name) {
@@ -3476,11 +3484,13 @@
       const button = pluginAutoExpandButtonCandidates()[0];
       if (!button || window.__codexPluginAutoExpandClicks >= codexPluginAutoExpandMaxClicks) {
         window.__codexPluginAutoExpandRunning = false;
-        sendCodexPlusDiagnostic("plugin_auto_expand_finished", {
-          version: codexPluginAutoExpandVersion,
-          clicks: window.__codexPluginAutoExpandClicks || 0,
-          exhausted: !!button,
-        });
+        if ((window.__codexPluginAutoExpandClicks || 0) > 0 || !!button) {
+          sendCodexPlusDiagnostic("plugin_auto_expand_finished", {
+            version: codexPluginAutoExpandVersion,
+            clicks: window.__codexPluginAutoExpandClicks || 0,
+            exhausted: !!button,
+          });
+        }
         return;
       }
       window.__codexPluginAutoExpandClicks = (window.__codexPluginAutoExpandClicks || 0) + 1;
