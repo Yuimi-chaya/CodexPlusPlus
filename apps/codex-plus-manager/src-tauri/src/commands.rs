@@ -1232,6 +1232,9 @@ pub async fn sync_providers_now(target_provider: Option<String>) -> CommandResul
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
     let target_for_settings = target_provider.clone();
+    let home = codex_plus_core::relay_config::default_codex_home_dir();
+    let settings = SettingsStore::default().load().unwrap_or_default();
+    prepare_codex_app_state_before_provider_switch(&home, "manager.sync_providers_now.before");
     let result = tauri::async_runtime::spawn_blocking(move || {
         codex_plus_data::run_provider_sync_with_target(None, target_provider.as_deref())
     })
@@ -1244,6 +1247,11 @@ pub async fn sync_providers_now(target_provider: Option<String>) -> CommandResul
                     target_for_settings
                         .as_deref()
                         .unwrap_or(&sync.target_provider),
+                );
+                finish_codex_app_state_after_provider_switch(
+                    &home,
+                    &settings,
+                    "manager.sync_providers_now.after",
                 );
             }
             ok(
@@ -3448,6 +3456,77 @@ fn default_log_lines() -> usize {
 mod tests {
     use super::*;
 
+    static CODEX_HOME_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn lock_codex_home_for_test() -> std::sync::MutexGuard<'static, ()> {
+        CODEX_HOME_TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    #[test]
+    fn provider_switch_state_helpers_restore_only_safe_state() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("codex-home");
+        std::fs::create_dir(&home).unwrap();
+        let state_path = home.join(".codex-global-state.json");
+        std::fs::write(
+            &state_path,
+            json!({
+                "electron-saved-workspace-roots": ["C:/work/app"],
+                "thread-writable-roots": {"thread-1": ["C:/work/app"]},
+                "electron-persisted-atom-state": {
+                    "default-service-tier": "priority",
+                    "electron:onboarding-workspace-autolaunch-applied": true,
+                    "heartbeat-thread-permissions-by-id": {"thread-1": "do-not-copy"},
+                    "prompt-history": ["do-not-copy"]
+                },
+                "provider-token-cache": "do-not-copy"
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        prepare_codex_app_state_before_provider_switch(&home, "test.before");
+        std::fs::write(
+            &state_path,
+            json!({"electron-saved-workspace-roots": ["D:/fresh/app"]}).to_string(),
+        )
+        .unwrap();
+        let settings = BackendSettings::default();
+        finish_codex_app_state_after_provider_switch(&home, &settings, "test.after");
+
+        let state: Value =
+            serde_json::from_str(&std::fs::read_to_string(&state_path).unwrap()).unwrap();
+        assert_eq!(
+            state["electron-saved-workspace-roots"],
+            json!(["D:\\fresh\\app", "C:\\work\\app"])
+        );
+        assert_eq!(
+            state["thread-writable-roots"]["thread-1"],
+            json!(["C:/work/app"])
+        );
+        assert_eq!(
+            state["electron-persisted-atom-state"]["default-service-tier"],
+            "priority"
+        );
+        assert_eq!(
+            state["electron-persisted-atom-state"]["electron:onboarding-workspace-autolaunch-applied"],
+            true
+        );
+        assert!(state.get("provider-token-cache").is_none());
+        assert!(
+            state["electron-persisted-atom-state"]
+                .get("heartbeat-thread-permissions-by-id")
+                .is_none()
+        );
+        assert!(
+            state["electron-persisted-atom-state"]
+                .get("prompt-history")
+                .is_none()
+        );
+    }
+
     #[test]
     fn backend_version_returns_structured_payload() {
         let result = backend_version();
@@ -4077,11 +4156,7 @@ mod tests {
         prepare_codex_app_state_before_provider_switch(&home, "test.before");
         std::fs::write(
             &state_path,
-            json!({
-                "electron-saved-workspace-roots": ["D:/fresh/app"],
-                "computer-use-bundled-plugin-auto-install-disabled": true
-            })
-            .to_string(),
+            json!({"electron-saved-workspace-roots": ["D:/fresh/app"]}).to_string(),
         )
         .unwrap();
         let settings = BackendSettings {
@@ -4106,13 +4181,15 @@ mod tests {
             state["electron-persisted-atom-state"]["default-service-tier"],
             "priority"
         );
-        assert_eq!(
-            state["electron-persisted-atom-state"]["plugin-marketplace-unlocked"],
-            true
+        assert!(
+            state["electron-persisted-atom-state"]
+                .get("plugin-marketplace-unlocked")
+                .is_none()
         );
-        assert_eq!(
-            state["computer-use-bundled-plugin-auto-install-disabled"],
-            false
+        assert!(
+            state
+                .get("computer-use-bundled-plugin-auto-install-disabled")
+                .is_none()
         );
         assert!(state.get("prompt-history").is_none());
         assert!(
