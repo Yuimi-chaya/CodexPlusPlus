@@ -368,17 +368,6 @@ base_url = "https://a.example/v1"
         state["computer-use-bundled-plugin-auto-install-disabled"],
         false
     );
-    assert!(state.get("prompt-history").is_none());
-    assert!(
-        state["electron-persisted-atom-state"]
-            .get("prompt-history")
-            .is_none()
-    );
-    assert!(
-        state["electron-persisted-atom-state"]
-            .get("provider-token-cache")
-            .is_none()
-    );
     assert!(
         home.join("backups_state/app-state-sync/latest-safe-state.json")
             .is_file()

@@ -3456,14 +3456,6 @@ fn default_log_lines() -> usize {
 mod tests {
     use super::*;
 
-    static CODEX_HOME_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    fn lock_codex_home_for_test() -> std::sync::MutexGuard<'static, ()> {
-        CODEX_HOME_TEST_LOCK
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-    }
-
     #[test]
     fn provider_switch_state_helpers_restore_only_safe_state() {
         let temp = tempfile::tempdir().unwrap();
