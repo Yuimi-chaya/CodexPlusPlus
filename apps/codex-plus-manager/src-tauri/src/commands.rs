@@ -4173,10 +4173,9 @@ mod tests {
             state["electron-persisted-atom-state"]["default-service-tier"],
             "priority"
         );
-        assert!(
-            state["electron-persisted-atom-state"]
-                .get("plugin-marketplace-unlocked")
-                .is_none()
+        assert_eq!(
+            state["electron-persisted-atom-state"]["plugin-marketplace-unlocked"],
+            true
         );
         assert!(
             state
