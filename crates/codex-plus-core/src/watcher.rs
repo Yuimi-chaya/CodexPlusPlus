@@ -526,7 +526,7 @@ pub fn stop_launcher_processes() {
 pub fn stop_launcher_processes() {}
 
 #[cfg(windows)]
-pub fn stop_launcher_processes_and_wait() {
+pub fn stop_launcher_processes_and_wait() -> Result<(), String> {
     let processes = crate::windows_integration::enumerate_processes();
     let killable = filter_killable_launcher_processes(
         processes.iter().map(|process| {
@@ -538,25 +538,35 @@ pub fn stop_launcher_processes_and_wait() {
         }),
         std::process::id(),
     );
-    terminate_and_wait_for_exit(
+    if terminate_and_wait_for_exit(
         killable,
         RESTART_STOP_WAIT_TIMEOUT_MS,
         RESTART_STOP_WAIT_INTERVAL_MS,
-    );
+    ) {
+        Ok(())
+    } else {
+        Err("等待旧 Codex++ Launcher 退出超时，已中止重启。".to_string())
+    }
 }
 
 #[cfg(target_os = "macos")]
-pub fn stop_launcher_processes_and_wait() {
-    terminate_macos_processes_and_wait(
+pub fn stop_launcher_processes_and_wait() -> Result<(), String> {
+    if terminate_macos_processes_and_wait(
         find_launcher_processes(),
         || find_launcher_processes(),
         RESTART_STOP_WAIT_TIMEOUT_MS,
         RESTART_STOP_WAIT_INTERVAL_MS,
-    );
+    ) {
+        Ok(())
+    } else {
+        Err("等待旧 Codex++ Launcher 退出超时，已中止重启。".to_string())
+    }
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-pub fn stop_launcher_processes_and_wait() {}
+pub fn stop_launcher_processes_and_wait() -> Result<(), String> {
+    Ok(())
+}
 
 #[cfg(windows)]
 pub fn stop_codex_processes() {
@@ -575,41 +585,54 @@ pub fn stop_codex_processes() {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CodexStopOutcome {
+    Stopped,
+    AlreadyAbsent,
+}
+
 #[cfg(windows)]
-pub fn stop_codex_processes_and_wait() {
-    terminate_and_wait_for_exit(
-        find_codex_processes(),
+pub fn stop_codex_processes_for_restart_and_wait() -> Result<CodexStopOutcome, String> {
+    let process_ids = find_codex_processes();
+    if process_ids.is_empty() {
+        return Ok(CodexStopOutcome::AlreadyAbsent);
+    }
+    if terminate_and_wait_for_exit(
+        process_ids,
         RESTART_STOP_WAIT_TIMEOUT_MS,
         RESTART_STOP_WAIT_INTERVAL_MS,
-    );
+    ) {
+        Ok(CodexStopOutcome::Stopped)
+    } else {
+        Err("等待 Codex App 退出超时，已中止重启。".to_string())
+    }
 }
 
 #[cfg(target_os = "macos")]
-pub fn stop_codex_processes_and_wait() {
-    terminate_macos_processes_and_wait(
-        find_codex_processes(),
+pub fn stop_codex_processes_for_restart_and_wait() -> Result<CodexStopOutcome, String> {
+    let process_ids = find_codex_processes();
+    if process_ids.is_empty() {
+        return Ok(CodexStopOutcome::AlreadyAbsent);
+    }
+    if terminate_macos_processes_and_wait(
+        process_ids,
         || find_codex_processes(),
         RESTART_STOP_WAIT_TIMEOUT_MS,
         RESTART_STOP_WAIT_INTERVAL_MS,
-    );
+    ) {
+        Ok(CodexStopOutcome::Stopped)
+    } else {
+        Err("等待 Codex App 退出超时，已中止重启。".to_string())
+    }
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-pub fn stop_codex_processes_and_wait() {}
-
-#[cfg(target_os = "macos")]
-pub fn stop_codex_processes_for_debug_port_and_wait(debug_port: u16) {
-    terminate_macos_processes_and_wait(
-        find_macos_codex_processes_for_debug_port(debug_port),
-        || find_macos_codex_processes_for_debug_port(debug_port),
-        RESTART_STOP_WAIT_TIMEOUT_MS,
-        RESTART_STOP_WAIT_INTERVAL_MS,
-    );
+pub fn stop_codex_processes_for_restart_and_wait() -> Result<CodexStopOutcome, String> {
+    Ok(CodexStopOutcome::AlreadyAbsent)
 }
 
-#[cfg(not(target_os = "macos"))]
-pub fn stop_codex_processes_for_debug_port_and_wait(_debug_port: u16) {
-    stop_codex_processes_and_wait();
+pub fn stop_codex_processes_and_wait() {
+    let _ = stop_codex_processes_for_restart_and_wait();
 }
 
 #[cfg(target_os = "macos")]
@@ -618,11 +641,12 @@ fn terminate_macos_processes_and_wait<F>(
     mut find_processes: F,
     timeout_ms: u64,
     interval_ms: u64,
-) where
+) -> bool
+where
     F: FnMut() -> Vec<u32>,
 {
     if process_ids.is_empty() {
-        return;
+        return true;
     }
     for process_id in &process_ids {
         let _ = terminate_macos_process(*process_id);
@@ -641,7 +665,7 @@ fn terminate_macos_processes_and_wait<F>(
                     }),
                 );
             }
-            break;
+            return remaining.is_empty();
         }
         std::thread::sleep(Duration::from_millis(interval_ms));
     }
@@ -683,47 +707,10 @@ fn find_launcher_processes() -> Vec<u32> {
     process_ids
 }
 
-#[cfg(target_os = "macos")]
-fn find_macos_codex_processes_for_debug_port(debug_port: u16) -> Vec<u32> {
-    let Ok(output) = std::process::Command::new("ps")
-        .args(["-axo", "pid=,args="])
-        .output()
-    else {
-        return Vec::new();
-    };
-    macos_codex_process_ids_for_debug_port(
-        String::from_utf8_lossy(&output.stdout).lines(),
-        debug_port,
-    )
-}
-
-#[cfg(target_os = "macos")]
-fn macos_codex_process_ids_for_debug_port<'a>(
-    process_lines: impl IntoIterator<Item = &'a str>,
-    debug_port: u16,
-) -> Vec<u32> {
-    let debug_flag = format!("remote-debugging-port={debug_port}");
-    let mut ids = process_lines
-        .into_iter()
-        .filter_map(|line| {
-            let trimmed = line.trim_start();
-            let (pid, args) = trimmed.split_once(char::is_whitespace)?;
-            let process_id = pid.parse::<u32>().ok()?;
-            let is_desktop_main = (args.contains(".app/Contents/MacOS/ChatGPT")
-                || args.contains(".app/Contents/MacOS/Codex"))
-                && !args.contains("/Helpers/");
-            (is_desktop_main && args.contains(&debug_flag)).then_some(process_id)
-        })
-        .collect::<Vec<_>>();
-    ids.sort_unstable();
-    ids.dedup();
-    ids
-}
-
 #[cfg(windows)]
-fn terminate_and_wait_for_exit(process_ids: Vec<u32>, timeout_ms: u64, interval_ms: u64) {
+fn terminate_and_wait_for_exit(process_ids: Vec<u32>, timeout_ms: u64, interval_ms: u64) -> bool {
     if process_ids.is_empty() {
-        return;
+        return true;
     }
     for process_id in &process_ids {
         let _ = crate::windows_integration::terminate_process(*process_id);
@@ -744,7 +731,7 @@ fn terminate_and_wait_for_exit(process_ids: Vec<u32>, timeout_ms: u64, interval_
                     }),
                 );
             }
-            break;
+            return remaining.is_empty();
         }
         std::thread::sleep(Duration::from_millis(interval_ms));
     }

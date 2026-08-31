@@ -43,7 +43,7 @@ impl CdpBrowserIdentity {
     }
 }
 
-/// Returns whether the requested loopback port exposes a CDP target list.
+/// Returns whether the requested loopback port exposes the main Codex App CDP target.
 pub(crate) fn endpoint_available(debug_port: u16) -> bool {
     [
         SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), debug_port),
@@ -104,12 +104,8 @@ fn response_contains_codex_target(response: &[u8], debug_port: u16) -> bool {
         return false;
     };
     targets.iter().any(|target| {
-        is_primary_codex_page_target(target)
-            && target
-                .url
-                .trim()
-                .to_ascii_lowercase()
-                .starts_with("app://-/")
+        is_injectable_page_target(target)
+            && is_codex_app_page_target(target)
             && target
                 .web_socket_debugger_url
                 .as_deref()
@@ -379,10 +375,10 @@ mod endpoint_tests {
     }
 
     #[test]
-    fn endpoint_available_accepts_devtools_target_response() {
+    fn endpoint_available_accepts_the_current_chatgpt_titled_app_main_target() {
         let (port, server) = serve_once(|port| {
             format!(
-                r#"[{{"id":"codex","type":"page","title":"Codex","url":"app://-/index.html","webSocketDebuggerUrl":"ws://127.0.0.1:{port}/devtools/page/1"}}]"#
+                r#"[{{"id":"codex","type":"page","title":"ChatGPT","url":"app://-/index.html","webSocketDebuggerUrl":"ws://127.0.0.1:{port}/devtools/page/1"}}]"#
             )
         });
 
@@ -423,14 +419,26 @@ mod endpoint_tests {
     }
 
     #[test]
-    fn endpoint_available_rejects_quick_chat_only_target() {
+    fn endpoint_available_accepts_quick_chat_app_target() {
         let (port, server) = serve_once(|port| {
             format!(
                 r#"[{{"id":"quick-chat","type":"page","title":"Codex","url":"app://-/index.html?initialRoute=%2Fchatgpt%2Fquick-chat-prewarm","webSocketDebuggerUrl":"ws://127.0.0.1:{port}/devtools/page/1"}}]"#
             )
         });
 
-        assert!(!endpoint_available(port));
+        assert!(endpoint_available(port));
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn endpoint_available_accepts_avatar_overlay_app_target() {
+        let (port, server) = serve_once(|port| {
+            format!(
+                r#"[{{"id":"avatar","type":"page","title":"ChatGPT","url":"app://-/index.html?initialRoute=%2Favatar-overlay","webSocketDebuggerUrl":"ws://127.0.0.1:{port}/devtools/page/1"}}]"#
+            )
+        });
+
+        assert!(endpoint_available(port));
         server.join().unwrap();
     }
 }
